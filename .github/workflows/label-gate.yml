@@ -9,8 +9,11 @@ on:
     workflows: ["Classify PR"]
     types: [completed]
 
+# github.event_name keeps pull_request and workflow_run runs in separate groups.
+# A workflow_run run must not cancel a pull_request run: the newest check suite
+# decides the required label-gate context, so a cancelled one blocks the PR.
 concurrency:
-  group: label-gate-${{ github.event.pull_request.head.repo.full_name || github.event.workflow_run.head_repository.full_name }}-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+  group: label-gate-${{ github.event_name }}-${{ github.event.pull_request.head.repo.full_name || github.event.workflow_run.head_repository.full_name }}-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 permissions:
