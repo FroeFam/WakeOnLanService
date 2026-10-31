@@ -19,8 +19,8 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^9.1.1"
-ruff = "^0.17.1"
+pytest = "^9.2.0"
+ruff = "^0.17.3"
 python-dotenv = "^1.2.4"
 pytest-cov = "^7.1.0"
 docker = "^7.2.0"
