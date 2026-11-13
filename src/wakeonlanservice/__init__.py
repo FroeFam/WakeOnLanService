@@ -6,7 +6,7 @@ import re
 from wakeonlanservice.logging_config import setup_logging
 
 # Import blueprints
-from wakeonlanservice.blueprints.status import status_bp
+from wakeonlanservice.blueprints.status import parse_redirect_setting, status_bp
 
 def create_app(test_config=None) -> Flask:
     """
@@ -66,3 +66,8 @@ def validate_env_variables() -> None:
     if not url or not re.match(r"^(http|https)://", url):
         logger.error("Invalid or missing URL environment variable")
         raise ValueError("Invalid or missing URL environment variable")
+
+    # Validate REDIRECT_ON_AVAILABLE (optional; unset or empty means true)
+    if parse_redirect_setting(os.getenv("REDIRECT_ON_AVAILABLE")) is None:
+        logger.error("Invalid REDIRECT_ON_AVAILABLE environment variable")
+        raise ValueError("Invalid REDIRECT_ON_AVAILABLE environment variable")

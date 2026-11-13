@@ -38,6 +38,26 @@
             transform: translateY(-50%) rotate(-45deg);
         }
 
+        .success-check {
+            display: none;
+            width: 120px;
+            height: 120px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .success-check::before {
+            content: '';
+            position: absolute;
+            left: 38px;
+            top: 8px;
+            width: 36px;
+            height: 76px;
+            border: solid #2e9d4f;
+            border-width: 0 16px 16px 0;
+            transform: rotate(45deg);
+        }
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -46,6 +66,11 @@
         .container {
             text-align: center;
             margin-top: 20%;
+        }
+
+        .message {
+            margin-top: 20px;
+            font-size: 1.4em;
         }
 
         .attempts {
@@ -74,7 +99,18 @@
                 const data = await response.json();
                 document.getElementById('attempts').innerText = `Attempts: ${data.attempts}`;
                 if (data.status === "available") {
-                    window.location.href = data.url;
+                    if (data.redirect) {
+                        window.location.href = data.url;
+                    } else {
+                        // Success-only mode: stop polling (each poll sends a magic packet)
+                        // and tell the user the computer is on.
+                        clearInterval(intervalId);
+                        document.querySelector('.spinner').style.display = 'none';
+                        document.querySelector('.success-check').style.display = 'block';
+                        document.getElementById('title').innerText = "Success";
+                        document.getElementById('message').innerText = "The computer is on.";
+                        document.getElementById('attempts').style.display = 'none';
+                    }
                 } else if (data.status === "debug") {
                     document.getElementById('debug').innerText = "The application is in debug mode.";
                 } else if (data.status === "error") {
@@ -97,9 +133,11 @@
 </head>
 <body>
     <div class="container">
-        <h1>Loading, please wait...</h1>
+        <h1 id="title">Loading, please wait...</h1>
         <div class="spinner"></div>
+        <div class="success-check"></div>
         <div class="error-x"></div>
+        <div class="message" id="message"></div>
         <div class="attempts" id="attempts">Attempts: 1</div>
         <div class="debug" id="debug"></div>
         <div class="error" id="error"></div>

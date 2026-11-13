@@ -4,10 +4,19 @@ import logging
 import os
 import requests
 import re
+import threading
 import urllib3
 import warnings
 
 status_bp = Blueprint("status", __name__)
+
+# Accepted values (lowercase) for REDIRECT_ON_AVAILABLE.
+REDIRECT_TRUE_VALUES = ("true", "1", "yes", "on")
+REDIRECT_FALSE_VALUES = ("false", "0", "no", "off")
+
+# Becomes non-empty after the first "unrecognized value" warning (warn once per process).
+_warned_unrecognized_redirect: list = []
+_warn_lock = threading.Lock()
 
 @status_bp.before_app_request
 def log_request_info():
@@ -42,6 +51,9 @@ def check_url():
     Returns:
         Response: JSON response with the status, number of attempts, and the URL.
     
+    The response also carries "redirect" (bool, from REDIRECT_ON_AVAILABLE). The "url"
+    key is present only when "redirect" is true.
+
     Status can be:
     - "available": The URL is reachable.
     - "error": The URL is not reachable after 10 attempts.
@@ -78,13 +90,69 @@ def check_url():
         status = "error"
     else:
         status = "unavailable"
-    
-    return jsonify(
-        {
-            "status": status,
-            "attempts": session["attempts"],
-            "url": url
-        })
+
+    redirect = redirect_on_available()
+    payload = {
+        "status": status,
+        "attempts": session["attempts"],
+        "redirect": redirect,
+    }
+    # The target URL goes to the browser only when the browser is meant to follow
+    # it. In success-only mode the URL is an internal address that stays server-side.
+    if redirect:
+        payload["url"] = url
+
+    return jsonify(payload)
+
+def redirect_on_available() -> bool:
+    """
+    Whether the browser should be sent to URL once it is reachable.
+
+    Controlled by the REDIRECT_ON_AVAILABLE environment variable. Unset or empty
+    means true. "true", "1", "yes" and "on" (any case) mean true; "false", "0",
+    "no" and "off" mean false, in which case the page shows a success message
+    instead. Any other value fails closed: it is treated as false so a typo can
+    never send an internal URL to the browser (the app also refuses to start with
+    such a value, see validate_env_variables).
+
+    Returns:
+        bool: True to redirect the browser to URL, False to show a success screen.
+    """
+    parsed = parse_redirect_setting(os.getenv("REDIRECT_ON_AVAILABLE"))
+    if parsed is not None:
+        return parsed
+    # Warn once per process: the frontend polls /check_url every 5 seconds.
+    # The lock makes check-and-set atomic across gunicorn worker threads.
+    with _warn_lock:
+        first = not _warned_unrecognized_redirect
+        if first:
+            _warned_unrecognized_redirect.append(True)
+    if first:
+        logging.getLogger(__name__).warning(
+            "Unrecognized REDIRECT_ON_AVAILABLE value; treating as false (no redirect)"
+        )
+    return False
+
+def parse_redirect_setting(raw):
+    """
+    The single parser for the REDIRECT_ON_AVAILABLE value. Startup validation and the
+    request-time check both use it, so the two can never disagree about what is valid.
+
+    Args:
+        raw (str | None): The raw environment variable value.
+
+    Returns:
+        bool | None: True or False for an unset, empty or recognized value (unset or
+        empty means True); None for an unrecognized value.
+    """
+    if raw is None or raw.strip() == "":
+        return True
+    value = raw.strip().lower()
+    if value in REDIRECT_TRUE_VALUES:
+        return True
+    if value in REDIRECT_FALSE_VALUES:
+        return False
+    return None
 
 def check_url_status(url):
     """

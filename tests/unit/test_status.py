@@ -136,3 +136,155 @@ class TestVersion:
         response = client.get("/version")
         assert response.status_code == 200
         assert response.get_json() == {"version": "1.2.3"}
+
+class TestRedirectOnAvailable:
+    @pytest.mark.parametrize("value", ["false", "FALSE", "False", "0", "no", "off", " false "])
+    def test_redirect_off_values(self, monkeypatch, value):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        assert redirect_on_available() is False
+
+    @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", "on", ""])
+    def test_redirect_on_values(self, monkeypatch, value):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        assert redirect_on_available() is True
+
+    def test_redirect_defaults_to_true(self, monkeypatch):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        assert redirect_on_available() is True
+
+    def test_check_url_default_returns_url_and_redirect(self, monkeypatch, client):
+        monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=True):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                data = client.get("/check_url").get_json()
+        assert data["status"] == "available"
+        assert data["redirect"] is True
+        assert data["url"] == "http://example.com"
+
+    def test_check_url_success_mode_omits_url(self, monkeypatch, client):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "false")
+        monkeypatch.setenv("URL", "http://192.168.1.50:5080")
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=True):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                response = client.get("/check_url")
+        data = response.get_json()
+        assert data["status"] == "available"
+        assert data["redirect"] is False
+        assert "url" not in data
+        assert b"192.168.1.50" not in response.data
+
+    def test_check_url_success_mode_unavailable_omits_url(self, monkeypatch, client):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "false")
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=False):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                data = client.get("/check_url").get_json()
+        assert data["status"] == "unavailable"
+        assert data["redirect"] is False
+        assert "url" not in data
+
+    def test_index_contains_success_markup(self, client):
+        response = client.get("/")
+        assert b'class="success-check"' in response.data
+        assert b"data.redirect" in response.data
+
+    @pytest.mark.parametrize("value", ["flase", "disabled", "nope", "2", "tru"])
+    def test_unrecognized_value_fails_closed(self, monkeypatch, value):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        assert redirect_on_available() is False
+
+    def test_unrecognized_value_never_returns_url(self, monkeypatch, client):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "flase")
+        monkeypatch.setenv("URL", "http://192.168.1.50:5080")
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=True):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                response = client.get("/check_url")
+        assert response.get_json()["redirect"] is False
+        assert b"192.168.1.50" not in response.data
+
+
+class TestRedirectEnvValidation:
+    @pytest.mark.parametrize("value", ["flase", "disabled", "2"])
+    def test_create_app_rejects_unrecognized_value(self, monkeypatch, value):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        with pytest.raises(ValueError, match="REDIRECT_ON_AVAILABLE"):
+            create_app({"TESTING": True, "SECRET_KEY": "k"})
+
+    @pytest.mark.parametrize("value", ["true", "false", "0", "1", "yes", "no", "on", "off", "", "  "])
+    def test_create_app_accepts_recognized_values(self, monkeypatch, value):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        create_app({"TESTING": True, "SECRET_KEY": "k"})
+
+    def test_create_app_accepts_unset(self, monkeypatch):
+        monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        create_app({"TESTING": True, "SECRET_KEY": "k"})
+
+
+class TestRedirectWarnOnce:
+    def test_unrecognized_value_warns_once(self, monkeypatch, caplog):
+        import logging
+        from wakeonlanservice.blueprints import status
+        monkeypatch.setattr(status, "_warned_unrecognized_redirect", [])
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "flase")
+        with caplog.at_level(logging.WARNING):
+            for _ in range(5):
+                assert status.redirect_on_available() is False
+        warnings_logged = [r for r in caplog.records if "Unrecognized REDIRECT_ON_AVAILABLE" in r.getMessage()]
+        assert len(warnings_logged) == 1
+
+    def test_concurrent_calls_warn_once(self, monkeypatch, caplog):
+        import logging
+        import threading
+        from wakeonlanservice.blueprints import status
+        monkeypatch.setattr(status, "_warned_unrecognized_redirect", [])
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "flase")
+        barrier = threading.Barrier(16)
+
+        def call():
+            barrier.wait()
+            status.redirect_on_available()
+
+        with caplog.at_level(logging.WARNING):
+            threads = [threading.Thread(target=call) for _ in range(16)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        warnings_logged = [r for r in caplog.records if "Unrecognized REDIRECT_ON_AVAILABLE" in r.getMessage()]
+        assert len(warnings_logged) == 1
+
+
+class TestParseRedirectSetting:
+    @pytest.mark.parametrize("raw,expected", [
+        (None, True), ("", True), ("  ", True),
+        ("true", True), ("TRUE", True), ("1", True), ("yes", True), ("on", True),
+        ("false", False), ("False", False), ("0", False), ("no", False), ("off", False), (" off ", False),
+        ("flase", None), ("disabled", None), ("2", None), ("tru", None),
+    ])
+    def test_parse(self, raw, expected):
+        from wakeonlanservice.blueprints.status import parse_redirect_setting
+        assert parse_redirect_setting(raw) is expected
+
+    @pytest.mark.parametrize("value", ["true", "false", "yes", "no", "0", "1", "on", "off", "flase", "disabled", "", None])
+    def test_startup_and_request_time_agree(self, monkeypatch, value):
+        """Startup validation and the request-time check use one parser, so they cannot disagree."""
+        from wakeonlanservice.blueprints.status import parse_redirect_setting, redirect_on_available
+        if value is None:
+            monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        else:
+            monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        parsed = parse_redirect_setting(value)
+        if parsed is None:
+            with pytest.raises(ValueError):
+                create_app({"TESTING": True, "SECRET_KEY": "k"})
+            assert redirect_on_available() is False
+        else:
+            create_app({"TESTING": True, "SECRET_KEY": "k"})
+            assert redirect_on_available() is parsed
