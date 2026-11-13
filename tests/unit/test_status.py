@@ -238,3 +238,24 @@ class TestRedirectWarnOnce:
                 assert status.redirect_on_available() is False
         warnings_logged = [r for r in caplog.records if "Unrecognized REDIRECT_ON_AVAILABLE" in r.getMessage()]
         assert len(warnings_logged) == 1
+
+    def test_concurrent_calls_warn_once(self, monkeypatch, caplog):
+        import logging
+        import threading
+        from wakeonlanservice.blueprints import status
+        monkeypatch.setattr(status, "_warned_unrecognized_redirect", [])
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "flase")
+        barrier = threading.Barrier(16)
+
+        def call():
+            barrier.wait()
+            status.redirect_on_available()
+
+        with caplog.at_level(logging.WARNING):
+            threads = [threading.Thread(target=call) for _ in range(16)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        warnings_logged = [r for r in caplog.records if "Unrecognized REDIRECT_ON_AVAILABLE" in r.getMessage()]
+        assert len(warnings_logged) == 1

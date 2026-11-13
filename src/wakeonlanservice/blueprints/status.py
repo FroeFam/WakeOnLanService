@@ -4,6 +4,7 @@ import logging
 import os
 import requests
 import re
+import threading
 import urllib3
 import warnings
 
@@ -15,6 +16,7 @@ REDIRECT_FALSE_VALUES = ("false", "0", "no", "off")
 
 # Becomes non-empty after the first "unrecognized value" warning (warn once per process).
 _warned_unrecognized_redirect: list = []
+_warn_lock = threading.Lock()
 
 @status_bp.before_app_request
 def log_request_info():
@@ -122,12 +124,17 @@ def redirect_on_available() -> bool:
     value = value.strip().lower()
     if value in REDIRECT_TRUE_VALUES:
         return True
-    if value not in REDIRECT_FALSE_VALUES and not _warned_unrecognized_redirect:
+    if value not in REDIRECT_FALSE_VALUES:
         # Warn once per process: the frontend polls /check_url every 5 seconds.
-        _warned_unrecognized_redirect.append(True)
-        logging.getLogger(__name__).warning(
-            "Unrecognized REDIRECT_ON_AVAILABLE value; treating as false (no redirect)"
-        )
+        # The lock makes check-and-set atomic across gunicorn worker threads.
+        with _warn_lock:
+            first = not _warned_unrecognized_redirect
+            if first:
+                _warned_unrecognized_redirect.append(True)
+        if first:
+            logging.getLogger(__name__).warning(
+                "Unrecognized REDIRECT_ON_AVAILABLE value; treating as false (no redirect)"
+            )
     return False
 
 def check_url_status(url):
