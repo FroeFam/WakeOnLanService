@@ -9,6 +9,10 @@ import warnings
 
 status_bp = Blueprint("status", __name__)
 
+# Accepted values (lowercase) for REDIRECT_ON_AVAILABLE.
+REDIRECT_TRUE_VALUES = ("true", "1", "yes", "on")
+REDIRECT_FALSE_VALUES = ("false", "0", "no", "off")
+
 @status_bp.before_app_request
 def log_request_info():
     """
@@ -99,15 +103,27 @@ def redirect_on_available() -> bool:
     """
     Whether the browser should be sent to URL once it is reachable.
 
-    Controlled by the REDIRECT_ON_AVAILABLE environment variable. Defaults to
-    true. The values "false", "0", "no" and "off" (any case) turn the redirect
-    off, in which case the page shows a success message instead.
+    Controlled by the REDIRECT_ON_AVAILABLE environment variable. Unset or empty
+    means true. "true", "1", "yes" and "on" (any case) mean true; "false", "0",
+    "no" and "off" mean false, in which case the page shows a success message
+    instead. Any other value fails closed: it is treated as false so a typo can
+    never send an internal URL to the browser (the app also refuses to start with
+    such a value, see validate_env_variables).
 
     Returns:
         bool: True to redirect the browser to URL, False to show a success screen.
     """
-    value = os.getenv("REDIRECT_ON_AVAILABLE", "true").strip().lower()
-    return value not in ("false", "0", "no", "off")
+    value = os.getenv("REDIRECT_ON_AVAILABLE")
+    if value is None or value.strip() == "":
+        return True
+    value = value.strip().lower()
+    if value in REDIRECT_TRUE_VALUES:
+        return True
+    if value not in REDIRECT_FALSE_VALUES:
+        logging.getLogger(__name__).warning(
+            "Unrecognized REDIRECT_ON_AVAILABLE value; treating as false (no redirect)"
+        )
+    return False
 
 def check_url_status(url):
     """

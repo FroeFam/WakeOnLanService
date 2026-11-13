@@ -192,3 +192,36 @@ class TestRedirectOnAvailable:
         response = client.get("/")
         assert b'class="success-check"' in response.data
         assert b"data.redirect" in response.data
+
+    @pytest.mark.parametrize("value", ["flase", "disabled", "nope", "2", "tru"])
+    def test_unrecognized_value_fails_closed(self, monkeypatch, value):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        assert redirect_on_available() is False
+
+    def test_unrecognized_value_never_returns_url(self, monkeypatch, client):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "flase")
+        monkeypatch.setenv("URL", "http://192.168.1.50:5080")
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=True):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                response = client.get("/check_url")
+        assert response.get_json()["redirect"] is False
+        assert b"192.168.1.50" not in response.data
+
+
+class TestRedirectEnvValidation:
+    @pytest.mark.parametrize("value", ["flase", "disabled", "2"])
+    def test_create_app_rejects_unrecognized_value(self, monkeypatch, value):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        with pytest.raises(ValueError, match="REDIRECT_ON_AVAILABLE"):
+            create_app({"TESTING": True, "SECRET_KEY": "k"})
+
+    @pytest.mark.parametrize("value", ["true", "false", "0", "1", "yes", "no", "on", "off", "", "  "])
+    def test_create_app_accepts_recognized_values(self, monkeypatch, value):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        create_app({"TESTING": True, "SECRET_KEY": "k"})
+
+    def test_create_app_accepts_unset(self, monkeypatch):
+        monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        create_app({"TESTING": True, "SECRET_KEY": "k"})

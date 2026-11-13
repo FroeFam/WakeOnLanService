@@ -38,7 +38,7 @@
    REDIRECT_ON_AVAILABLE=true
    ```
 
-   `URL` is polled until it answers HTTP 200. `REDIRECT_ON_AVAILABLE` (default `true`) decides what happens next: `true` sends the browser to `URL`; `false` (also `0`, `no`, `off`) shows a "Success - The computer is on." screen instead and does not return `URL` to the browser, so `URL` can be an internal address.
+   `URL` is polled until it answers HTTP 200. `REDIRECT_ON_AVAILABLE` (default `true`) decides what happens next: `true` sends the browser to `URL`; `false` (also `0`, `no`, `off`) shows a "Success - The computer is on." screen instead and does not return `URL` to the browser, so `URL` can be an internal address. Accepted values are `true`/`1`/`yes`/`on` and `false`/`0`/`no`/`off` (any case); unset or empty means `true`. Any other value stops the app at startup, and if one ever reaches the running app it is treated as `false`, so a typo never exposes `URL`.
 
 1. Run the Flask Application
 
