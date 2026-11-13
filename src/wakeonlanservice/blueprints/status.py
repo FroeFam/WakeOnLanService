@@ -118,24 +118,41 @@ def redirect_on_available() -> bool:
     Returns:
         bool: True to redirect the browser to URL, False to show a success screen.
     """
-    value = os.getenv("REDIRECT_ON_AVAILABLE")
-    if value is None or value.strip() == "":
+    parsed = parse_redirect_setting(os.getenv("REDIRECT_ON_AVAILABLE"))
+    if parsed is not None:
+        return parsed
+    # Warn once per process: the frontend polls /check_url every 5 seconds.
+    # The lock makes check-and-set atomic across gunicorn worker threads.
+    with _warn_lock:
+        first = not _warned_unrecognized_redirect
+        if first:
+            _warned_unrecognized_redirect.append(True)
+    if first:
+        logging.getLogger(__name__).warning(
+            "Unrecognized REDIRECT_ON_AVAILABLE value; treating as false (no redirect)"
+        )
+    return False
+
+def parse_redirect_setting(raw):
+    """
+    The single parser for the REDIRECT_ON_AVAILABLE value. Startup validation and the
+    request-time check both use it, so the two can never disagree about what is valid.
+
+    Args:
+        raw (str | None): The raw environment variable value.
+
+    Returns:
+        bool | None: True or False for an unset, empty or recognized value (unset or
+        empty means True); None for an unrecognized value.
+    """
+    if raw is None or raw.strip() == "":
         return True
-    value = value.strip().lower()
+    value = raw.strip().lower()
     if value in REDIRECT_TRUE_VALUES:
         return True
-    if value not in REDIRECT_FALSE_VALUES:
-        # Warn once per process: the frontend polls /check_url every 5 seconds.
-        # The lock makes check-and-set atomic across gunicorn worker threads.
-        with _warn_lock:
-            first = not _warned_unrecognized_redirect
-            if first:
-                _warned_unrecognized_redirect.append(True)
-        if first:
-            logging.getLogger(__name__).warning(
-                "Unrecognized REDIRECT_ON_AVAILABLE value; treating as false (no redirect)"
-            )
-    return False
+    if value in REDIRECT_FALSE_VALUES:
+        return False
+    return None
 
 def check_url_status(url):
     """

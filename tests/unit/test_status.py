@@ -259,3 +259,32 @@ class TestRedirectWarnOnce:
                 t.join()
         warnings_logged = [r for r in caplog.records if "Unrecognized REDIRECT_ON_AVAILABLE" in r.getMessage()]
         assert len(warnings_logged) == 1
+
+
+class TestParseRedirectSetting:
+    @pytest.mark.parametrize("raw,expected", [
+        (None, True), ("", True), ("  ", True),
+        ("true", True), ("TRUE", True), ("1", True), ("yes", True), ("on", True),
+        ("false", False), ("False", False), ("0", False), ("no", False), ("off", False), (" off ", False),
+        ("flase", None), ("disabled", None), ("2", None), ("tru", None),
+    ])
+    def test_parse(self, raw, expected):
+        from wakeonlanservice.blueprints.status import parse_redirect_setting
+        assert parse_redirect_setting(raw) is expected
+
+    @pytest.mark.parametrize("value", ["true", "false", "yes", "no", "0", "1", "on", "off", "flase", "disabled", "", None])
+    def test_startup_and_request_time_agree(self, monkeypatch, value):
+        """Startup validation and the request-time check use one parser, so they cannot disagree."""
+        from wakeonlanservice.blueprints.status import parse_redirect_setting, redirect_on_available
+        if value is None:
+            monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        else:
+            monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        parsed = parse_redirect_setting(value)
+        if parsed is None:
+            with pytest.raises(ValueError):
+                create_app({"TESTING": True, "SECRET_KEY": "k"})
+            assert redirect_on_available() is False
+        else:
+            create_app({"TESTING": True, "SECRET_KEY": "k"})
+            assert redirect_on_available() is parsed
