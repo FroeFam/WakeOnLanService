@@ -42,6 +42,9 @@ def check_url():
     Returns:
         Response: JSON response with the status, number of attempts, and the URL.
     
+    The response also carries "redirect" (bool, from REDIRECT_ON_AVAILABLE). The "url"
+    key is present only when "redirect" is true.
+
     Status can be:
     - "available": The URL is reachable.
     - "error": The URL is not reachable after 10 attempts.
@@ -78,13 +81,33 @@ def check_url():
         status = "error"
     else:
         status = "unavailable"
-    
-    return jsonify(
-        {
-            "status": status,
-            "attempts": session["attempts"],
-            "url": url
-        })
+
+    redirect = redirect_on_available()
+    payload = {
+        "status": status,
+        "attempts": session["attempts"],
+        "redirect": redirect,
+    }
+    # The target URL goes to the browser only when the browser is meant to follow
+    # it. In success-only mode the URL is an internal address that stays server-side.
+    if redirect:
+        payload["url"] = url
+
+    return jsonify(payload)
+
+def redirect_on_available() -> bool:
+    """
+    Whether the browser should be sent to URL once it is reachable.
+
+    Controlled by the REDIRECT_ON_AVAILABLE environment variable. Defaults to
+    true. The values "false", "0", "no" and "off" (any case) turn the redirect
+    off, in which case the page shows a success message instead.
+
+    Returns:
+        bool: True to redirect the browser to URL, False to show a success screen.
+    """
+    value = os.getenv("REDIRECT_ON_AVAILABLE", "true").strip().lower()
+    return value not in ("false", "0", "no", "off")
 
 def check_url_status(url):
     """

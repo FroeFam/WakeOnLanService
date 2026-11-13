@@ -35,7 +35,10 @@
    FLASK_DEBUG=1
    MAC_ADDRESS=your_mac_address_here
    URL=your_url_here
+   REDIRECT_ON_AVAILABLE=true
    ```
+
+   `URL` is polled until it answers HTTP 200. `REDIRECT_ON_AVAILABLE` (default `true`) decides what happens next: `true` sends the browser to `URL`; `false` (also `0`, `no`, `off`) shows a "Success - The computer is on." screen instead and does not return `URL` to the browser, so `URL` can be an internal address.
 
 1. Run the Flask Application
 

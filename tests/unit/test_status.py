@@ -136,3 +136,59 @@ class TestVersion:
         response = client.get("/version")
         assert response.status_code == 200
         assert response.get_json() == {"version": "1.2.3"}
+
+class TestRedirectOnAvailable:
+    @pytest.mark.parametrize("value", ["false", "FALSE", "False", "0", "no", "off", " false "])
+    def test_redirect_off_values(self, monkeypatch, value):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        assert redirect_on_available() is False
+
+    @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", "on", ""])
+    def test_redirect_on_values(self, monkeypatch, value):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", value)
+        assert redirect_on_available() is True
+
+    def test_redirect_defaults_to_true(self, monkeypatch):
+        from wakeonlanservice.blueprints.status import redirect_on_available
+        monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        assert redirect_on_available() is True
+
+    def test_check_url_default_returns_url_and_redirect(self, monkeypatch, client):
+        monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=True):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                data = client.get("/check_url").get_json()
+        assert data["status"] == "available"
+        assert data["redirect"] is True
+        assert data["url"] == "http://example.com"
+
+    def test_check_url_success_mode_omits_url(self, monkeypatch, client):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "false")
+        monkeypatch.setenv("URL", "http://192.168.1.50:5080")
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=True):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                response = client.get("/check_url")
+        data = response.get_json()
+        assert data["status"] == "available"
+        assert data["redirect"] is False
+        assert "url" not in data
+        assert b"192.168.1.50" not in response.data
+
+    def test_check_url_success_mode_unavailable_omits_url(self, monkeypatch, client):
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "false")
+        with patch("wakeonlanservice.blueprints.status.check_url_status", return_value=False):
+            with patch("wakeonlanservice.blueprints.status.send_magic_packet"):
+                client.get("/")
+                data = client.get("/check_url").get_json()
+        assert data["status"] == "unavailable"
+        assert data["redirect"] is False
+        assert "url" not in data
+
+    def test_index_contains_success_markup(self, client):
+        response = client.get("/")
+        assert b'class="success-check"' in response.data
+        assert b"data.redirect" in response.data
