@@ -225,3 +225,16 @@ class TestRedirectEnvValidation:
     def test_create_app_accepts_unset(self, monkeypatch):
         monkeypatch.delenv("REDIRECT_ON_AVAILABLE", raising=False)
         create_app({"TESTING": True, "SECRET_KEY": "k"})
+
+
+class TestRedirectWarnOnce:
+    def test_unrecognized_value_warns_once(self, monkeypatch, caplog):
+        import logging
+        from wakeonlanservice.blueprints import status
+        monkeypatch.setattr(status, "_warned_unrecognized_redirect", [])
+        monkeypatch.setenv("REDIRECT_ON_AVAILABLE", "flase")
+        with caplog.at_level(logging.WARNING):
+            for _ in range(5):
+                assert status.redirect_on_available() is False
+        warnings_logged = [r for r in caplog.records if "Unrecognized REDIRECT_ON_AVAILABLE" in r.getMessage()]
+        assert len(warnings_logged) == 1

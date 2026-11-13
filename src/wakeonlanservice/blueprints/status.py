@@ -13,6 +13,9 @@ status_bp = Blueprint("status", __name__)
 REDIRECT_TRUE_VALUES = ("true", "1", "yes", "on")
 REDIRECT_FALSE_VALUES = ("false", "0", "no", "off")
 
+# Becomes non-empty after the first "unrecognized value" warning (warn once per process).
+_warned_unrecognized_redirect: list = []
+
 @status_bp.before_app_request
 def log_request_info():
     """
@@ -119,7 +122,9 @@ def redirect_on_available() -> bool:
     value = value.strip().lower()
     if value in REDIRECT_TRUE_VALUES:
         return True
-    if value not in REDIRECT_FALSE_VALUES:
+    if value not in REDIRECT_FALSE_VALUES and not _warned_unrecognized_redirect:
+        # Warn once per process: the frontend polls /check_url every 5 seconds.
+        _warned_unrecognized_redirect.append(True)
         logging.getLogger(__name__).warning(
             "Unrecognized REDIRECT_ON_AVAILABLE value; treating as false (no redirect)"
         )
